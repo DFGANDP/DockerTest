@@ -1,34 +1,53 @@
+import requests
 import json
 import os
-import steamreviews
+import sys
 
-def download_and_save_reviews(app_id: int, output_file: str) -> None:
-    """
-    Pobiera i zapisuje recenzje Steam dla danego App ID.
+OUTPUT_DIR = "/app/output"  # Katalog w kontenerze
 
-    Args:
-        app_id (int): Steam App ID gry.
-        output_file (str): Ścieżka do pliku JSON.
-    """
-    request_params = {
-        "language": "all",
-        "review_type": "all",
-        "filter": "recent"
-    }
 
-    review_dict, query_count = steamreviews.download_reviews_for_app_id(
-        app_id, chosen_request_params=request_params
-    )
+def fetch_reviews(appid, num_requests=3, num_per_page=20):
+    url = f"https://store.steampowered.com/appreviews/{appid}"
+    cursor = '*'
+    reviews = []
 
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    for i in range(num_requests):
+        params = {
+            'json': 1,
+            'num_per_page': num_per_page,
+            'cursor': cursor
+        }
 
-    with open(output_file, "w", encoding="utf-8") as file:
-        json.dump(review_dict, file, indent=4, ensure_ascii=False)
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            reviews.extend(data.get('reviews', []))
+            cursor = data.get('cursor', None)
 
-    print(f"📥 Pobranie zakończone! Wykonano {query_count} zapytań. Plik zapisano w: {output_file}")
+            print(f"Request {i + 1}: Retrieved {len(data.get('reviews', []))} reviews")
+            if not cursor:
+                print("No more reviews to fetch.")
+                break
+        else:
+            print(f"Error: {response.status_code}")
+            break
+
+    # Tworzymy katalog, jeśli nie istnieje
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Zapisujemy recenzje do pliku w volume
+    file_path = os.path.join(OUTPUT_DIR, f"reviews_{appid}.json")
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(reviews, f, ensure_ascii=False, indent=4)
+    
+    print(f"Total reviews fetched: {len(reviews)} - saved to {file_path}")
+    return reviews
+
 
 if __name__ == "__main__":
-    APP_ID = int(os.getenv("APP_ID", "2477340"))  # Domyślnie ID gry 2477340
-    OUTPUT_FILE = os.getenv("OUTPUT_FILE", f"/output/steam_reviews_{APP_ID}.json")
+    if len(sys.argv) < 2:
+        print("Usage: python fetch_reviews.py <appid>")
+        sys.exit(1)
 
-    download_and_save_reviews(APP_ID, OUTPUT_FILE)
+    appid = sys.argv[1]
+    fetch_reviews(appid)
